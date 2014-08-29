@@ -12,6 +12,7 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # Copyright Buildbot Team Members
+# Portions Copyright 2014 Digia Plc and/or its subsidiary(-ies).
 
 from buildbot import util
 from buildbot.changes import base
@@ -63,7 +64,7 @@ class GerritChangeSource(base.ChangeSource):
 
     def __init__(self,
                  gerritserver,
-                 username,
+                 username=None,
                  gerritport=29418,
                  identity_file=None,
                  handled_events=("patchset-created", "ref-updated")):
@@ -93,6 +94,14 @@ class GerritChangeSource(base.ChangeSource):
         self.process = None
         self.wantProcess = False
         self.streamProcessTimeout = self.STREAM_BACKOFF_MIN
+
+    def _gerritUrl(self, include_gerrit_port=True):
+        url = self.gerritserver
+        if self.username:
+            url = self.username + "@" + url
+        if include_gerrit_port:
+            url += ":" + str(self.gerritport)
+        return url
 
     class LocalPP(ProcessProtocol):
 
@@ -186,9 +195,8 @@ class GerritChangeSource(base.ChangeSource):
                     event_change["owner"]["name"],
                     event_change["owner"]["email"]),
                 'project': event_change["project"],
-                'repository': "ssh://%s@%s:%s/%s" % (
-                    self.username, self.gerritserver,
-                    self.gerritport, event_change["project"]),
+                'repository': u"ssh://%s/%s" % (
+                    self._gerritUrl(), event_change["project"]),
                 'branch': self.getGroupingPolicyFromEvent(event),
                 'revision': event["patchSet"]["revision"],
                 'revlink': event_change["url"],
@@ -208,9 +216,7 @@ class GerritChangeSource(base.ChangeSource):
         return self.addChange(dict(
             author=author,
             project=ref["project"],
-            repository="ssh://%s@%s:%s/%s" % (
-                self.username, self.gerritserver,
-                self.gerritport, ref["project"]),
+            repository="ssh://%s/%s" % (self._gerritUrl(), ref["project"]),
             branch=ref["refName"],
             revision=ref["newRev"],
             comments="Gerrit: patchset(s) merged.",
@@ -248,8 +254,7 @@ class GerritChangeSource(base.ChangeSource):
     def startStreamProcess(self):
         log.msg("starting 'gerrit stream-events'")
         self.lastStreamProcessStart = util.now()
-        uri = "%s@%s" % (self.username, self.gerritserver)
-        args = [uri, "-p", str(self.gerritport)]
+        args = [self._gerritUrl(include_gerrit_port=False), "-p", str(self.gerritport)]
         if self.identity_file is not None:
             args = args + ['-i', self.identity_file]
         self.process = reactor.spawnProcess(
@@ -273,5 +278,5 @@ class GerritChangeSource(base.ChangeSource):
         if not self.process:
             status = "[NOT CONNECTED - check log]"
         msg = ("GerritChangeSource watching the remote "
-               "Gerrit repository %s@%s %s")
-        return msg % (self.username, self.gerritserver, status)
+               "Gerrit repository %s %s")
+        return msg % (self._gerritUrl(include_gerrit_port=False), status)
